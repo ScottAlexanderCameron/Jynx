@@ -1,9 +1,12 @@
 [tool.poetry]
-name = "jynx"
+name = "jax-jynx"
 version = "0.1.1"
 description = "A neural network library using jax"
 authors = ["Scott Cameron"]
 readme = "README.md"
+packages = [
+  { include = "jynx" }
+]
 
 [tool.poetry.dependencies]
 python = ">=3.12"
