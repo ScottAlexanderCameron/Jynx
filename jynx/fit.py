@@ -10,19 +10,19 @@ from jax import tree_util
 type Logs = tp.Dict[str, tp.Any]
 
 
-class TrainState(tp.NamedTuple):
-    params: optax.Params
-    grads: optax.Params
+class TrainState[Params](tp.NamedTuple):
+    params: Params
+    grads: Params
     opt_state: optax.OptState
 
 
-class OptimizationResult(tp.NamedTuple):
-    params: optax.Params
+class OptimizationResult[Params](tp.NamedTuple):
+    params: Params
     logs: Logs
 
 
-type TrainStep[B, E] = tp.Callable[
-    [TrainState, B, Array], tp.Tuple[TrainState, Array, E]
+type TrainStep[Params, Batch, Extras] = tp.Callable[
+    [TrainState[Params], Batch, Array], tp.Tuple[TrainState[Params], Array, Extras]
 ]
 
 
@@ -33,16 +33,16 @@ def predict_on_batch(loss_fn):
     return fn
 
 
-def make_train_step[B](
-    loss_fn: tp.Callable[[optax.Params, B, Array], Array],
+def make_train_step[Params, Batch](
+    loss_fn: tp.Callable[[Params, Batch, Array], Array],
     optimizer: optax.GradientTransformation,
     loss_has_aux: bool = False,
     use_pmap: bool = False,
     donate_args: bool = False,
-) -> TrainStep:
+) -> TrainStep[Params, Batch, tp.Any]:
     def train_step(
         state: TrainState,
-        batch: B,
+        batch: Batch,
         key: Array,
     ) -> tp.Tuple[TrainState, float, tp.Any]:
         loss, grads = jax.value_and_grad(loss_fn, has_aux=loss_has_aux)(
@@ -70,22 +70,22 @@ def make_train_step[B](
         return jax.jit(train_step, donate_argnums=donate)
 
 
-def fit[B](
-    params: optax.Params,
+def fit[Params, Batch](
+    params: Params,
     *,
-    loss_fn: tp.Callable[[optax.Params, B, Array], Array],
-    data_iter: tp.Iterable[B],
+    loss_fn: tp.Callable[[Params, Batch, Array], Array],
+    data_iter: tp.Iterable[Batch],
     optimizer: optax.GradientTransformation,
     max_steps: tp.Optional[int] = None,
-    callbacks: tp.Sequence[tp.Callable[[TrainState, Logs], None]] = (),
+    callbacks: tp.Sequence[tp.Callable[[TrainState[Params], Logs], None]] = (),
     n_steps_between_calls: int = 100,
     loss_has_aux: bool = False,
     use_pmap: bool = False,
     donate_args: bool = False,
-    train_step: tp.Optional[TrainStep] = None,
-    state: tp.Optional[TrainState] = None,
+    train_step: tp.Optional[TrainStep[Params, Batch, tp.Any]] = None,
+    state: tp.Optional[TrainState[Params]] = None,
     key: Array,
-) -> OptimizationResult:
+) -> OptimizationResult[Params]:
     if train_step is None:
         train_step = make_train_step(
             loss_fn,
@@ -95,11 +95,12 @@ def fit[B](
             donate_args,
         )
 
-    state = state or TrainState(
-        params,
-        tree_util.tree_map(jnp.zeros_like, params),
-        optimizer.init(params),
-    )
+    if state is None:
+        state = TrainState(
+            params,
+            tree_util.tree_map(jnp.zeros_like, params),
+            optimizer.init(params),  # type: ignore
+        )
 
     cum_loss = 0.0
     rng = key_seq(key)
@@ -121,7 +122,7 @@ def fit[B](
         if max_steps and step >= max_steps:
             break
 
-    return OptimizationResult(state.params, logs)
+    return OptimizationResult(state.params, logs)  # type: ignore
 
 
 def key_seq(key: Array, split: int = 16):

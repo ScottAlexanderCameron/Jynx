@@ -11,8 +11,8 @@ def static(*args, **kwargs):
 
 def dataclass_flatten(self):
     fs = {f.name: f.metadata.get("static", False) for f in fields(self)}
-    ch = {name: getattr(self, name) for name, st in fs.items() if not st}
-    aux = {name: getattr(self, name) for name, st in fs.items() if st}
+    ch = {name: getattr(self, name) for name, st in sorted(fs.items()) if not st}
+    aux = {name: getattr(self, name) for name, st in sorted(fs.items()) if st}
     return (ch,), aux
 
 
@@ -23,7 +23,7 @@ def dataclass_unflatten(cls, aux, children):
 
 def dataclass_flatten_with_keys(self):
     (ch,), aux = self.tree_flatten()
-    return [(tu.GetAttrKey(k), v) for k, v in ch.items()], aux
+    return [(tu.GetAttrKey(k), v) for k, v in sorted(ch.items(), key=lambda a: a[0])], aux
 
 
 @dataclass_transform(field_specifiers=(static,))

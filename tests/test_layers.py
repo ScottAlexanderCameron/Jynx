@@ -1,3 +1,4 @@
+from functools import partial
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
@@ -160,3 +161,77 @@ def test_conv_shape_inverts_conv_transpose(in_shape, channels, kernel_size, stri
 
     x = jnp.zeros(in_shape)
     assert x.shape == conv(deconv(x)).shape
+
+
+@given(small_ints, small_ints)
+@slow_settings
+def test_attention_permutation_invariant(dhead, num_heads):
+    key = partial(next, jynx.key_seq(rnd.PRNGKey(0)))
+    d = dhead * num_heads
+    attn = nn.attention(d, num_heads, key=key())
+    q = rnd.normal(key(), (3, d))
+    k = rnd.normal(key(), (10, d))
+    p = rnd.permutation(key(), 10)
+    x1 = attn(q, k)
+    x2 = attn(q, k[p])
+
+    assert jnp.allclose(x1, x2, rtol=1e-3, atol=1e-5)
+
+
+def assert_tree_map_with_paths_preserves_order(obj):
+    obj_with_names = tu.tree_map_with_path(lambda k, _: tu.keystr(k), obj)
+    for k, name in tu.tree_leaves_with_path(obj_with_names):
+        assert tu.keystr(k) == name
+
+
+@given(layer_sizes)
+@slow_settings
+def test_mlp_tree_map_preserves_order(sizes):
+    net = nn.mlp(sizes, key=rnd.PRNGKey(0))
+    assert_tree_map_with_paths_preserves_order(net)
+
+
+@given(
+    layer_sizes,
+    st.one_of([st.just(nn.rnn_cell), st.just(nn.gru_cell), st.just(nn.lstm_cell)]),
+)
+@slow_settings
+def test_rnn_tree_map_preserves_order(sizes, cell_type):
+    key = jynx.key_seq(rnd.PRNGKey(0))
+    net = nn.Recurrent(
+        cell_type(si, so, key=next(key)) for si, so in zip(sizes[:-1], sizes[1:])
+    )
+    assert_tree_map_with_paths_preserves_order(net)
+
+
+@given(st.lists(small_ints, min_size=3, max_size=3), small_ints, tiny_ints, tiny_ints)
+@slow_settings
+def test_conv_tree_map_preserves_order(in_shape, channels, kernel_size, stride):
+    in_shape = (1,) + tuple(in_shape)
+    key = jynx.key_seq(rnd.PRNGKey(0))
+    conv = nn.conv(
+        channels,
+        in_shape[1],
+        (kernel_size, kernel_size),
+        (stride, stride),
+        key=next(key),
+    )
+    deconv = nn.conv_transpose(
+        in_shape[1],
+        channels,
+        (kernel_size, kernel_size),
+        (stride, stride),
+        key=next(key),
+    )
+    assert_tree_map_with_paths_preserves_order((conv, deconv))
+
+
+@given(small_ints, small_ints, tiny_ints)
+@slow_settings
+def test_transformer_tree_map_preserves_order(dhead, num_heads, layers):
+    key = partial(next, jynx.key_seq(rnd.PRNGKey(0)))
+    d = dhead * num_heads
+    enc = nn.transformer_encoder(layers, d, num_heads, key=key())
+    dec = nn.transformer_decoder(layers, d, num_heads, key=key())
+
+    assert_tree_map_with_paths_preserves_order((enc, dec))

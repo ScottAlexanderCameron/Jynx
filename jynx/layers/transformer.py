@@ -1,5 +1,6 @@
 import typing as tp
 
+import jax
 import jax.nn.initializers as init
 from jax import Array, nn
 from jax import numpy as jnp
@@ -15,11 +16,30 @@ from .nets import mlp
 from .static import Dropout
 
 
+class AttentionFn(tp.Protocol):
+    def __call__(
+        self, q: Array, k: Array, v: Array, mask: tp.Optional[Array] = None, **kwargs
+    ) -> Array:
+        ...
+
+
+@jax.checkpoint  # pyright: ignore
+def scaled_dot_product_attention(
+    q: Array, k: Array, v: Array, mask: tp.Optional[Array] = None, **kwargs
+) -> Array:
+    del kwargs
+    d = q.shape[-1]
+    logits = jnp.einsum("...qd,...kd->...qk", q / jnp.sqrt(d), k)
+    weights = nn.softmax(logits, axis=-1, where=mask, initial=0.0)
+    return jnp.einsum("...qk,...kv->...qv", weights, v)
+
+
 class Attention(PyTree):
     proj_q: Linear
     proj_k: Linear
     proj_v: Linear
     proj_o: Linear
+    attn_fn: AttentionFn = static(default=scaled_dot_product_attention)
 
     def __call__(
         self,
@@ -28,11 +48,8 @@ class Attention(PyTree):
         v: tp.Optional[Array] = None,  # shape: (..., Tk, vdim)
         *,
         mask: tp.Optional[Array] = None,  # shape: (..., Tk) or (..., Tq, Tk)
-        attention_distances: tp.Union[bool, Array] = False,
-        # return_weights: bool = False,
         **kwargs,
     ) -> Array:
-        del kwargs
         if k is None:
             k = q
         if v is None:
@@ -42,29 +59,11 @@ class Attention(PyTree):
         k = self.proj_k(jnp.expand_dims(k, -3))  # shape: (..., n_heads, Tk, d_head)
         v = self.proj_v(jnp.expand_dims(v, -3))  # shape: (..., n_heads, Tk, d_head)
 
-        d_k = k.shape[-1]
-        logits = q @ k.swapaxes(-1, -2) / jnp.sqrt(d_k)  # shape: (..., n_head, Tq, Tk)
-
-        if attention_distances is True:
-            attention_distances = jnp.abs(
-                jnp.arange(logits.shape[-2])[:, None] - jnp.arange(logits.shape[-1])
-            )
-
-        if attention_distances is not False:
-            logits = logits - attention_distances
-
-        if mask is not None:
-            logits = jnp.where(mask, logits, -jnp.inf)
-
-        weights = nn.softmax(logits, axis=-1)
-        atten = weights @ v  # shape: (..., n_head, Tq, d_head)
+        atten = self.attn_fn(q, k, v, mask, **kwargs)
         atten = atten.swapaxes(-2, -3)  # shape: (..., Tq, n_head, d_head)
-        atten = atten.reshape(atten.shape[:-2] + (-1,))  # shape: (..., Tq, embed)
+        atten = atten.reshape((*atten.shape[:-2], -1))  # shape: (..., Tq, embed)
         out = self.proj_o(atten)
 
-        # if return_weights:
-        #     return out, weights
-        # else:
         return out
 
     @classmethod
@@ -82,6 +81,7 @@ def attention(
     out_dim: tp.Optional[int] = None,
     weight_init: Initializer = init.xavier_normal(),
     bias_init: Initializer = init.normal(),
+    attention_fn: AttentionFn = scaled_dot_product_attention,
     key: Array,
 ) -> Attention:
     """
@@ -134,8 +134,9 @@ def attention(
         ),
         Linear(
             weight_init(wk4, (embed_dim, out_dim)),
-            bias_init(bk4, (num_heads, 1, dhead)),
+            bias_init(bk4, (out_dim,)),
         ),
+        attention_fn,
     )
 
 
@@ -152,8 +153,8 @@ class TransformerEncoderBlock(PyTree):
         x: Array,
         *,
         mask: tp.Optional[Array] = None,
-        self_attention_distances: tp.Union[bool, Array] = False,
         key: Key = None,
+        **kwargs,
     ) -> Array:
         if key is not None:
             k1, k2, k3 = rnd.split(key, 3)
@@ -164,9 +165,7 @@ class TransformerEncoderBlock(PyTree):
             x = self.norm1(x)
 
         x = x + self.dropout(
-            self.self_attention(
-                x, mask=mask, attention_distances=self_attention_distances
-            ),
+            self.self_attention(x, mask=mask, **kwargs),
             key=k1,
         )
         x = self.norm2(x)
@@ -186,13 +185,14 @@ def transformer_encoder_block(
     activation: tp.Callable[[Array], Array] = nn.relu,
     ff_hidden_size_factor: int = 4,
     norm_first: bool = True,
+    attention_fn: AttentionFn = scaled_dot_product_attention,
     key: Array,
 ) -> TransformerEncoderBlock:
     k1, k2 = rnd.split(key)
     return TransformerEncoderBlock(
         layer_norm((embed_dim,)),
         layer_norm((embed_dim,)),
-        attention(embed_dim, num_heads, key=k1),
+        attention(embed_dim, num_heads, attention_fn=attention_fn, key=k1),
         mlp(
             [embed_dim, ff_hidden_size_factor * embed_dim, embed_dim],
             activation=activation,
@@ -212,6 +212,7 @@ def transformer_encoder(
     activation: tp.Callable[[Array], Array] = nn.relu,
     ff_hidden_size_factor: int = 4,
     norm_first: bool = True,
+    attention_fn: AttentionFn = scaled_dot_product_attention,
     key: Array,
 ) -> Sequential:
     return Sequential(
@@ -223,6 +224,7 @@ def transformer_encoder(
                 activation=activation,
                 ff_hidden_size_factor=ff_hidden_size_factor,
                 norm_first=norm_first,
+                attention_fn=attention_fn,
                 key=k,
             )
             for k in rnd.split(key, num_layers)
@@ -246,10 +248,9 @@ class TransformerDecoderBlock(PyTree):
         context: Array,
         *,
         mask: tp.Optional[Array] = None,
-        self_attention_distances: bool | Array = False,
         context_mask: tp.Optional[Array] = None,
-        cross_attention_distances: bool | Array = False,
         key: Key = None,
+        **kwargs,
     ) -> Array:
         if key is not None:
             k1, k2, k3, k4 = rnd.split(key, 4)
@@ -260,21 +261,12 @@ class TransformerDecoderBlock(PyTree):
             x = self.norm1(x)
 
         x = x + self.dropout(
-            self.self_attention(
-                x,
-                mask=mask,
-                attention_distances=self_attention_distances,
-            ),
+            self.self_attention(x, mask=mask, **kwargs),
             key=k1,
         )
         x = self.norm2(x)
         x = x + self.dropout(
-            self.cross_attention(
-                x,
-                context,
-                mask=context_mask,
-                attention_distances=cross_attention_distances,
-            ),
+            self.cross_attention(x, context, mask=context_mask, **kwargs),
             key=k2,
         )
         x = self.norm3(x)
@@ -294,6 +286,7 @@ def transformer_decoder_block(
     activation: tp.Callable[[Array], Array] = nn.relu,
     ff_hidden_size_factor: int = 4,
     norm_first: bool = True,
+    attention_fn: AttentionFn = scaled_dot_product_attention,
     key: Array,
 ) -> TransformerDecoderBlock:
     k1, k2, k3 = rnd.split(key, 3)
@@ -301,8 +294,8 @@ def transformer_decoder_block(
         layer_norm((embed_dim,)),
         layer_norm((embed_dim,)),
         layer_norm((embed_dim,)),
-        attention(embed_dim, num_heads, key=k1),
-        attention(embed_dim, num_heads, key=k2),
+        attention(embed_dim, num_heads, attention_fn=attention_fn, key=k1),
+        attention(embed_dim, num_heads, attention_fn=attention_fn, key=k2),
         mlp(
             [embed_dim, ff_hidden_size_factor * embed_dim, embed_dim],
             activation=activation,
@@ -322,6 +315,7 @@ def transformer_decoder(
     activation: tp.Callable[[Array], Array] = nn.relu,
     ff_hidden_size_factor: int = 4,
     norm_first: bool = True,
+    attention_fn: AttentionFn = scaled_dot_product_attention,
     key: Array,
 ) -> Sequential:
     return Sequential(
@@ -333,6 +327,7 @@ def transformer_decoder(
                 activation=activation,
                 ff_hidden_size_factor=ff_hidden_size_factor,
                 norm_first=norm_first,
+                attention_fn=attention_fn,
                 key=k,
             )
             for k in rnd.split(key, num_layers)
