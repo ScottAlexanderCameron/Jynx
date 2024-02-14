@@ -23,7 +23,9 @@ def dataclass_unflatten(cls, aux, children):
 
 def dataclass_flatten_with_keys(self):
     (ch,), aux = self.tree_flatten()
-    return [(tu.GetAttrKey(k), v) for k, v in sorted(ch.items(), key=lambda a: a[0])], aux
+    return [
+        (tu.GetAttrKey(k), v) for k, v in sorted(ch.items(), key=lambda a: a[0])
+    ], aux
 
 
 @dataclass_transform(field_specifiers=(static,))
