@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "jax-jynx"
-version = "0.1.1"
+version = "0.1.2"
 description = "A neural network library using jax"
 authors = ["Scott Cameron"]
 readme = "README.md"
@@ -21,6 +21,9 @@ pytest = "^8.0.0"
 pytest-cov = "^4.1.0"
 hypothesis = "^6.98.3"
 ruff = "^0.2.1"
+mkdocs = "^1.5.3"
+mkdocs-material = "^9.5.9"
+mkdocstrings = {extras = ["python"], version = "^0.24.0"}
 
 [tool.ruff]
 target-version = "py312"
@@ -35,6 +38,9 @@ quote-style = "double"
 indent-style = "space"
 skip-magic-trailing-comma = false
 line-ending = "auto"
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"  # Accepts: "google", "numpy", or "pep257".
 
 [tool.pylsp-mypy]
 enabled = true

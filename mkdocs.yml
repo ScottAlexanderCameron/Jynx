@@ -1,0 +1,39 @@
+site_name: Jynx Documentation
+theme:
+  name: material
+  palette: 
+    # Palette toggle for light mode
+    - scheme: default
+      toggle:
+        icon: material/toggle-switch 
+        name: Switch to dark mode
+
+    # Palette toggle for dark mode
+    - scheme: slate
+      toggle:
+        icon: material/toggle-switch-off-outline
+        name: Switch to light mode
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+
+plugins:
+  - search
+  - mkdocstrings
+
+nav:
+  - Home: index.md
+  - About: about.md
+  - Tutorials: tutorials.md
+  - How to Guides: how-to-guides.md
+  - Reference:
+    - jynx: reference/jynx.md
+    - jynx.layers: reference/layers.md
+    - jynx.callbacks: reference/callbacks.md
+  - Explanation: explanation.md

@@ -35,9 +35,11 @@ from .rnn import GRUCell, LSTMCell, RNNCell, gru_cell, lstm_cell, rnn_cell
 from .static import Dropout, Fn, Reshape, StarFn, Static
 from .transformer import (
     Attention,
+    AttentionFn,
     TransformerDecoderBlock,
     TransformerEncoderBlock,
     attention,
+    scaled_dot_product_attention,
     transformer_decoder,
     transformer_decoder_block,
     transformer_encoder,
@@ -46,6 +48,7 @@ from .transformer import (
 __all__ = [
     "attention",
     "Attention",
+    "AttentionFn",
     "AvgPoolng",
     "conv",
     "Conv",
@@ -79,6 +82,7 @@ __all__ = [
     "Reshape",
     "rnn_cell",
     "RNNCell",
+    "scaled_dot_product_attention",
     "sequential",
     "Sequential",
     "SkipConnection",

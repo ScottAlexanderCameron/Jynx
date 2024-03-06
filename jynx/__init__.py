@@ -1,4 +1,4 @@
-from . import callbacks, layers
+from . import callbacks, layers, pytree
 from .fit import (
     OptimizationResult,
     TrainState,
@@ -7,6 +7,7 @@ from .fit import (
     make_train_step,
     predict_on_batch,
 )
+from .pytree import PyTree
 
 __all__ = [
     "callbacks",
@@ -16,5 +17,7 @@ __all__ = [
     "make_train_step",
     "OptimizationResult",
     "predict_on_batch",
+    "pytree",
+    "PyTree",
     "TrainState",
 ]
