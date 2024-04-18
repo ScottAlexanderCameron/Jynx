@@ -59,7 +59,7 @@ class AttentionFn(tp.Protocol):
         ...
 
 
-@jax.checkpoint  # pyright: ignore
+# @jax.checkpoint  # pyright: ignore
 def scaled_dot_product_attention(
     q: Array,
     k: Array,

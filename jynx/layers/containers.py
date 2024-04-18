@@ -94,8 +94,9 @@ class ModuleList[M: Module](list[M]):
                 Dicts may be empty if 'key' is not provided in kwargs.
 
         """
-        if "key" in kwargs:
-            return [{"key": k} for k in rnd.split(kwargs.pop("key"), len(self))]
+        key = kwargs.pop("key", None)
+        if key is not None:
+            return [{"key": k} for k in rnd.split(key, len(self))]
         else:
             return [{}] * len(self)
 
