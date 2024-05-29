@@ -4,7 +4,7 @@ from pathlib import Path
 
 import numpy as np
 
-type Logs = tp.Dict[str, tp.Any]
+type Logs = dict[str, tp.Any]
 type TrainState = tp.Any
 
 
@@ -12,7 +12,7 @@ def StopIfDryRun(dry_run: bool) -> tp.Callable[..., None]:
     def fun(*args):
         del args
         if dry_run:
-            raise StopIteration()
+            raise StopIteration
 
     return fun
 
@@ -47,14 +47,14 @@ class EarlyStopping:
             self.monitor.best = value
             self.last_improvement = step
         if step - self.last_improvement >= self.steps_without_improvement:
-            raise StopIteration()
+            raise StopIteration
 
 
 class CheckPoint:
     def __init__(
         self,
-        path: tp.Union[Path, str],
-        monitor: tp.Optional[str] = None,
+        path: Path | str,
+        monitor: str | None = None,
         mode: tp.Literal["min", "max"] = "min",
     ):
         from os import makedirs
@@ -85,7 +85,7 @@ class CheckPoint:
                 stream,
             )
 
-    def load(self) -> tp.Tuple[TrainState, Logs]:
+    def load(self) -> tuple[TrainState, Logs]:
         import cloudpickle as pickle
 
         with self.path.open("rb") as stream:
@@ -95,7 +95,7 @@ class CheckPoint:
 
 
 class Logger:
-    def __init__(self, metrics: tp.Optional[tp.Sequence[str]] = None):
+    def __init__(self, metrics: tp.Sequence[str] | None = None):
         self.metrics = metrics
 
     def __call__(self, state: TrainState, logs: Logs):
@@ -108,14 +108,14 @@ class Logger:
             self.log(m, logs[m], logs["step"])
 
     def log_hparams(self, hparams: Logs):
-        raise NotImplementedError()
+        raise NotImplementedError
 
     def log(self, metric_name: str, value: tp.Any, step: int):
         ...
 
 
 class TensorBoardLogger(Logger):
-    def __init__(self, log_dir: str, metrics: tp.Optional[tp.Sequence[str]] = None):
+    def __init__(self, log_dir: str, metrics: tp.Sequence[str] | None = None):
         super().__init__(metrics)
         from tensorboardX import SummaryWriter
 
@@ -144,7 +144,7 @@ class ConsoleLogger(Logger):
     def __init__(
         self,
         name: str = __name__,
-        metrics: tp.Optional[tp.Sequence[str]] = None,
+        metrics: tp.Sequence[str] | None = None,
     ):
         super().__init__(metrics)
         import logging
@@ -163,10 +163,10 @@ class ConsoleLogger(Logger):
 @dataclass(frozen=True)
 class BatchMetric[B, T]:
     compute_on_batch: tp.Callable[[TrainState, B], T]
-    aggregate: tp.Callable[[tp.List[T]], T] = np.mean  # type: ignore
+    aggregate: tp.Callable[[list[T]], T] = np.mean  # type: ignore
 
 
-type Metric[B, T] = tp.Union[BatchMetric[B, T], tp.Callable[[TrainState], T]]
+type Metric[B, T] = BatchMetric[B, T] | tp.Callable[[TrainState], T]
 
 
 class ComputeMetrics[B]:
@@ -174,14 +174,18 @@ class ComputeMetrics[B]:
         self,
         data_iter: tp.Iterable[B],
         metrics: tp.Mapping[str, Metric[B, tp.Any]],
+        max_batches: int | None = None,
     ):
         self.data_iter = data_iter
         self.metrics = metrics
+        self.max_batches = max_batches
 
     def __call__(self, state: TrainState, logs: Logs):
         metrics: dict = {name: [] for name in self.metrics.keys()}
 
-        for batch in self.data_iter:
+        for i, batch in enumerate(self.data_iter):
+            if self.max_batches is not None and i >= self.max_batches:
+                break
             for name, metric in self.metrics.items():
                 if isinstance(metric, BatchMetric):
                     metrics[name].append(metric.compute_on_batch(state, batch))
