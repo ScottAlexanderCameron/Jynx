@@ -1,4 +1,5 @@
 import typing as tp
+from collections.abc import Callable
 
 import jax
 import jax.nn.initializers as init
@@ -11,7 +12,6 @@ from ..pytree import PyTree, static
 from .containers import Sequential
 from .linear import Linear
 from .misc import Norm, layer_norm
-from .module import Key
 from .nets import mlp
 from .static import Dropout
 
@@ -117,8 +117,7 @@ def sliced_attention(
     k, v = chunk(k), chunk(v)
 
     if mask is not None:
-        mask = mask.reshape(
-            *mask.shape[:-1], mask.shape[-1] // chunk_size, chunk_size)
+        mask = mask.reshape(*mask.shape[:-1], mask.shape[-1] // chunk_size, chunk_size)
 
     def loop(carry, kvm):
         k, v, m = kvm
@@ -130,8 +129,7 @@ def sliced_attention(
         w += wi.sum(axis=-1)
         return (w, out), None
 
-    (sum_w, out), _ = jax.lax.scan(
-        loop, (jnp.zeros(()), jnp.zeros(())), (k, v, mask))
+    (sum_w, out), _ = jax.lax.scan(loop, (jnp.zeros(()), jnp.zeros(())), (k, v, mask))
     return out / sum_w
 
 
@@ -153,7 +151,7 @@ def sliding_window_attention(
         pad = [(0, 0)] * len(x.shape)
         pad[-2] = (window_left, window_right)
         x = jnp.pad(x, pad)
-        x = x[..., idx: idx + window_width, :]
+        x = x[..., idx : idx + window_width, :]
         return x
 
     k = chunk(k)
@@ -300,7 +298,7 @@ def attention(
             layers. Defaults to init.xavier_normal().
         bias_init (Initializer, optional): The bias initializer for the linear layers.
             Defaults to init.normal().
-        key (Array): The random key array for splitting.
+        key (Array): The random key array for initialization.
 
     Returns:
         Attention: An instance of the Attention layer.
@@ -390,7 +388,6 @@ class TransformerEncoderBlock(PyTree):
         x: Array,
         *,
         mask: Array | None = None,
-        key: Key = None,
         **kwargs,
     ) -> Array:
         """Apply the operations of the Transformer encoder block to the input tensor.
@@ -400,7 +397,6 @@ class TransformerEncoderBlock(PyTree):
                 embed_dim).
             mask: Optional[Array], the mask tensor for self-attention,
                 usually with shape (batch_size, 1, seq_len, seq_len).
-            key: Key, an optional key for deterministic dropout.
 
         Returns:
             Array: The output tensor after applying the encoder block
@@ -413,20 +409,15 @@ class TransformerEncoderBlock(PyTree):
             ```
 
         """
-        if key is not None:
-            k1, k2, k3 = rnd.split(key, 3)
-        else:
-            k1, k2, k3 = None, None, None
-
         if self.norm_first:
             x = self.norm1(x)
 
         x = x + self.dropout(
             self.self_attention(x, mask=mask, **kwargs),
-            key=k1,
+            **kwargs,
         )
         x = self.norm2(x)
-        x = x + self.dropout(self.mlp(x, key=k2), key=k3)
+        x = x + self.dropout(self.mlp(x, **kwargs), **kwargs)
 
         if not self.norm_first:
             x = self.norm1(x)
@@ -439,7 +430,7 @@ def transformer_encoder_block(
     num_heads: int,
     *,
     dropout_prob: float = 0,
-    activation: tp.Callable[[Array], Array] = nn.relu,
+    activation: Callable[[Array], Array] = nn.relu,
     ff_hidden_size_factor: int = 4,
     norm_first: bool = True,
     attention_fn: AttentionFn = scaled_dot_product_attention,
@@ -500,7 +491,7 @@ def transformer_encoder(
     num_heads: int,
     *,
     dropout_prob: float = 0,
-    activation: tp.Callable[[Array], Array] = nn.relu,
+    activation: Callable[[Array], Array] = nn.relu,
     ff_hidden_size_factor: int = 4,
     norm_first: bool = True,
     attention_fn: AttentionFn = scaled_dot_product_attention,
@@ -611,28 +602,22 @@ class TransformerDecoderBlock(PyTree):
         *,
         mask: Array | None = None,
         context_mask: Array | None = None,
-        key: Key = None,
         **kwargs,
     ) -> Array:
-        if key is not None:
-            k1, k2, k3, k4 = rnd.split(key, 4)
-        else:
-            k1, k2, k3, k4 = None, None, None, None
-
         if self.norm_first:
             x = self.norm1(x)
 
         x = x + self.dropout(
             self.self_attention(x, mask=mask, **kwargs),
-            key=k1,
+            **kwargs,
         )
         x = self.norm2(x)
         x = x + self.dropout(
             self.cross_attention(x, context, mask=context_mask, **kwargs),
-            key=k2,
+            **kwargs,
         )
         x = self.norm3(x)
-        x = x + self.dropout(self.mlp(x, key=k3), key=k4)
+        x = x + self.dropout(self.mlp(x, **kwargs), **kwargs)
 
         if not self.norm_first:
             x = self.norm1(x)
@@ -645,7 +630,7 @@ def transformer_decoder_block(
     num_heads: int,
     *,
     dropout_prob: float = 0,
-    activation: tp.Callable[[Array], Array] = nn.relu,
+    activation: Callable[[Array], Array] = nn.relu,
     ff_hidden_size_factor: int = 4,
     norm_first: bool = True,
     attention_fn: AttentionFn = scaled_dot_product_attention,
@@ -708,7 +693,7 @@ def transformer_decoder(
     num_heads: int,
     *,
     dropout_prob: float = 0,
-    activation: tp.Callable[[Array], Array] = nn.relu,
+    activation: Callable[[Array], Array] = nn.relu,
     ff_hidden_size_factor: int = 4,
     norm_first: bool = True,
     attention_fn: AttentionFn = scaled_dot_product_attention,

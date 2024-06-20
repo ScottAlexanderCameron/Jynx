@@ -25,8 +25,7 @@ class MixtureOfExperts[**P](PyTree):
         x = x.reshape((-1, features_in))
 
         weights, selected_experts = self.gate(x, *args, **kwargs)
-        experts_out = self.stacked_experts(
-            selected_experts, x, *args, **kwargs)
+        experts_out = self.stacked_experts(selected_experts, x, *args, **kwargs)
         experts_out = jnp.sum(experts_out * weights[:, :, None], axis=1)
 
         return experts_out.reshape((*batch_shape, -1))

@@ -1,4 +1,4 @@
-import typing as tp
+from collections.abc import Callable
 
 import jax.nn.initializers as init
 from jax import Array, nn
@@ -17,7 +17,7 @@ class RNNCell(PyTree):
     is computed based on the current input and the previous state,
     passed through an activation function.
 
-    Attributes
+    Attributes:
         weight_x (Array): Weights for input x.
         weight_h (Array): Weights for previous state.
         bias (Optional[Array]): Optional bias term.
@@ -30,7 +30,7 @@ class RNNCell(PyTree):
     weight_x: Array
     weight_h: Array
     bias: Array | None
-    activation: tp.Callable[[Array], Array] = static(default=nn.sigmoid)
+    activation: Callable[[Array], Array] = static(default=nn.sigmoid)
 
     def __call__(
         self,
@@ -58,7 +58,7 @@ class RNNCell(PyTree):
 def rnn_cell(
     in_size: int,
     state_size: int,
-    activation: tp.Callable[[Array], Array] = nn.sigmoid,
+    activation: Callable[[Array], Array] = nn.sigmoid,
     *,
     weight_init: Initializer = init.kaiming_normal(),
     bias_init: Initializer = init.normal(),
@@ -98,7 +98,7 @@ class GRUCell(PyTree):
     improving the ability to capture dependencies and mitigate vanishing
     gradient issues.
 
-    Attributes
+    Attributes:
         update_gate (RNNCell): The update gate cell.
         reset_gate (RNNCell): The reset gate cell.
         candidate_cell (RNNCell): The candidate state cell.
@@ -183,7 +183,7 @@ class LSTMCell(PyTree):
     significantly improving the network's ability to capture long-term
     dependencies and mitigate vanishing or exploding gradient issues.
 
-    Attributes
+    Attributes:
         input_gate (RNNCell): The input gate cell.
         output_gate (RNNCell): The output gate cell.
         forget_gate (RNNCell): The forget gate cell.

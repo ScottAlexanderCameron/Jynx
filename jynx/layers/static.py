@@ -1,4 +1,4 @@
-import typing as tp
+from collections.abc import Callable, Iterator, Sequence
 
 from jax import Array
 from jax import numpy as jnp
@@ -6,7 +6,6 @@ from jax import random as rnd
 from jax.typing import ArrayLike
 
 from ..pytree import PyTree
-from .module import Key
 
 
 class Static(PyTree):
@@ -18,7 +17,7 @@ class Static(PyTree):
     training. It inherits from `PyTree` to integrate seamlessly with
     JAX's functional transformations and optimizations.
 
-    Methods
+    Methods:
         tree_flatten(self):
             A method to satisfy the PyTree protocol with no dynamic attributes.
         tree_flatten_with_keys(self):
@@ -48,17 +47,17 @@ class Fn[T, U](Static):
     This class allows wrapping pure functions to be used within JAX
     computational graphs, ensuring they are treated as static components.
 
-    Attributes
+    Attributes:
         fn (Callable[[T], U]): The function to be wrapped and treated
             as a static component.
 
-    Methods
+    Methods:
         __call__(self, x, *args, **kwargs) -> U:
             Invokes the wrapped function with the provided arguments.
 
     """
 
-    fn: tp.Callable[[T], U]
+    fn: Callable[[T], U]
 
     def __call__(self, x: T, *args, **kwargs) -> U:
         del args, kwargs
@@ -73,19 +72,19 @@ class StarFn[T, U](Static):
     allowing them to be passed as a sequence and then unpacked when the
     function is called.
 
-    Attributes
+    Attributes:
         fn (Callable[..., U]): The function to be wrapped, accepting a
             variable number of arguments.
 
-    Methods
+    Methods:
         __call__(self, x, *args, **kwargs) -> U:
             Invokes the wrapped function, unpacking the sequence `x` into separate arguments.
 
     """
 
-    fn: tp.Callable[..., U]
+    fn: Callable[..., U]
 
-    def __call__(self, x: tp.Sequence[T], *args, **kwargs) -> U:
+    def __call__(self, x: Sequence[T], *args, **kwargs) -> U:
         del args, kwargs
         return self.fn(*x)
 
@@ -93,10 +92,10 @@ class StarFn[T, U](Static):
 class Reshape(Static):
     """A static operation that reshapes its input array to a specified shape.
 
-    Attributes
+    Attributes:
         shape (tuple): The target shape to which the input array will be reshaped.
 
-    Methods
+    Methods:
         __call__(self, x, *args, **kwargs) -> Array:
             Reshapes the input array `x` to the target shape.
 
@@ -113,10 +112,10 @@ class Dropout(Static):
     """A static dropout layer, randomly setting a fraction of input
     units to 0 at each update during training.
 
-    Attributes
+    Attributes:
         dropout_prob (float): The probability of setting each input unit to 0.
 
-    Methods
+    Methods:
         __call__(self, x, *args, key=None, **kwargs) -> Array:
             Applies dropout to the input array `x` using the provided `key` for randomness.
             If `key` is not provided, then dropout is disabled.
@@ -125,10 +124,17 @@ class Dropout(Static):
 
     dropout_prob: float
 
-    def __call__(self, x: Array, *args, key: Key = None, **kwargs) -> Array:
+    def __call__(
+        self,
+        x: Array,
+        *args,
+        rng: Iterator[Array] | None = None,
+        **kwargs,
+    ) -> Array:
         del args, kwargs
-        if key is None or self.dropout_prob == 0:
+        if rng is None or self.dropout_prob == 0:
             return x
         else:
+            key = next(rng)
             mask = rnd.bernoulli(key, self.dropout_prob, x.shape)
             return mask.astype(x.dtype) * x

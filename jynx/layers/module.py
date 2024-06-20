@@ -1,12 +1,10 @@
-import typing as tp
+from collections.abc import Callable
+from typing import Protocol
 
-from jax import Array
-
-type Key = Array | None
-type Module[**T, U] = tp.Callable[T, U]
+type Module[**T, U] = Callable[T, U]
 
 
-class RecurrentModule[T, S, U, **P](tp.Protocol):
+class RecurrentModule[T, S, U, **P](Protocol):
     """A protocol class for recurrent neural network layers.
 
     This class is used to annotate types that behave as recurrent layers within neural networks, such as GRU or LSTM layers.
@@ -63,7 +61,7 @@ class RecurrentModule[T, S, U, **P](tp.Protocol):
         This property should be implemented to return the initial state of the hidden layer, allowing the recurrent model
         to be properly initialized before processing any input data.
 
-        Returns
+        Returns:
             S: The default initial state of the recurrent layer's hidden state.
 
         """

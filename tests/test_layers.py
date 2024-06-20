@@ -1,13 +1,14 @@
 from functools import partial
-from hypothesis import HealthCheck, given, settings
-from hypothesis import strategies as st
 
 import jax
-import jynx
-import jynx.layers as nn
+from hypothesis import HealthCheck, given, settings
+from hypothesis import strategies as st
 from jax import numpy as jnp
 from jax import random as rnd
 from jax import tree_util as tu
+
+import jynx
+import jynx.layers as nn
 
 small_ints = st.integers(1, 64)
 tiny_ints = st.integers(1, 3)
@@ -46,7 +47,8 @@ def test_rnn_initial_forward_is_not_nan(seed, sizes, cell_type):
     x_shape = (32, sizes[0])
 
     net = nn.Recurrent(
-        cell_type(si, so, key=next(key)) for si, so in zip(sizes[:-1], sizes[1:])
+        cell_type(si, so, key=next(key))
+        for si, so in zip(sizes[:-1], sizes[1:], strict=False)
     )
     state = net.initial_state
 
@@ -199,7 +201,8 @@ def test_mlp_tree_map_preserves_order(sizes):
 def test_rnn_tree_map_preserves_order(sizes, cell_type):
     key = jynx.key_seq(rnd.PRNGKey(0))
     net = nn.Recurrent(
-        cell_type(si, so, key=next(key)) for si, so in zip(sizes[:-1], sizes[1:])
+        cell_type(si, so, key=next(key))
+        for si, so in zip(sizes[:-1], sizes[1:], strict=False)
     )
     assert_tree_map_with_paths_preserves_order(net)
 
@@ -235,3 +238,13 @@ def test_transformer_tree_map_preserves_order(dhead, num_heads, layers):
     dec = nn.transformer_decoder(layers, d, num_heads, key=key())
 
     assert_tree_map_with_paths_preserves_order((enc, dec))
+
+
+@given(tiny_ints, seeds)
+@slow_settings
+def test_unet_initial_forward_is_not_nan(depth, key):
+    key = partial(next, jynx.key_seq(rnd.PRNGKey(key)))
+    unet: nn.UNet = nn.unet(depth, 1, 1, 16, key=key())
+    x = rnd.normal(key(), (1, 1, 32, 32))
+
+    assert jnp.all(jnp.isfinite(unet(x)))

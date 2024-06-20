@@ -30,7 +30,7 @@ from .misc import (
     norm,
 )
 from .module import Module
-from .nets import mlp
+from .nets import RNNCellFactory, UNet, UNetBlockFactory, gru, lstm, mlp, rnn, unet
 from .rnn import GRUCell, LSTMCell, RNNCell, gru_cell, lstm_cell, rnn_cell
 from .static import Dropout, Fn, Reshape, StarFn, Static
 from .transformer import (
@@ -93,4 +93,11 @@ __all__ = [
     "TransformerDecoderBlock",
     "transformer_encoder",
     "TransformerEncoderBlock",
+    "rnn",
+    "lstm",
+    "gru",
+    "UNet",
+    "UNetBlockFactory",
+    "unet",
+    "RNNCellFactory",
 ]

@@ -1,5 +1,5 @@
 import typing as tp
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from functools import partial
 
 import jax.nn.initializers as init
@@ -18,9 +18,9 @@ from .static import Dropout, Fn
 
 
 def mlp(
-    sizes: tp.Sequence[int],
-    activation: tp.Callable[[Array], Array] = nn.relu,
-    final_activation: tp.Callable[[Array], Array] | None = None,
+    sizes: Sequence[int],
+    activation: Callable[[Array], Array] = nn.relu,
+    final_activation: Callable[[Array], Array] | None = None,
     dropout: float | None = None,
     *,
     weight_init: Initializer = init.kaiming_normal(),
@@ -121,7 +121,7 @@ def rnn(
     out_size: int,
     num_layers: int = 1,
     dropout: float | None = None,
-    final_activation: tp.Callable[[Array], Array] | None = None,
+    final_activation: Callable[[Array], Array] | None = None,
     cell_factory: RNNCellFactory = rnn_cell,
     *,
     weight_init: Initializer = init.kaiming_normal(),

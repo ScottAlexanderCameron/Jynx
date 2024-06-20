@@ -1,4 +1,5 @@
 import typing as tp
+from collections.abc import Sequence, Callable
 from functools import partial
 
 from jax import Array, lax
@@ -7,7 +8,7 @@ from jax import random as rnd
 from jax.typing import ArrayLike
 
 from ..pytree import PyTree, static
-from .module import Key, Module
+from .module import Module
 from .static import Static
 
 
@@ -46,10 +47,10 @@ class Pooling(Static):
     """
 
     init_value: ArrayLike
-    op: tp.Callable[[Array, Array], Array]
-    window: tp.Sequence[int]
-    strides: tp.Sequence[int] = ()
-    padding: tp.Sequence[tuple[int, int]] | str = "VALID"
+    op: Callable[[Array, Array], Array]
+    window: Sequence[int]
+    strides: Sequence[int] = ()
+    padding: Sequence[tuple[int, int]] | str = "VALID"
     normalize: bool = False
 
     def __call__(self, x: Array, *args, **kwargs) -> Array:
@@ -149,7 +150,7 @@ def norm(
     use_weight: bool = True,
     use_bias: bool = True,
     subtract_mean: bool = True,
-    key: Key = None,  # for compatibility with other factories
+    key: Array | None = None,  # for compatibility with other factories
 ) -> Norm:
     """Constructs a Norm layer with specified configurations for normalization.
 
@@ -163,7 +164,8 @@ def norm(
         use_weight (bool): If True, initializes a scale parameter (weight) with ones. If False, weight is set to None.
         use_bias (bool): If True, initializes a shift parameter (bias) with zeros. If False, bias is set to None.
         subtract_mean (bool): If True, subtracts the mean from the data before normalization.
-        key (Key): A JAX random key, unused in this function but included for compatibility with other layer constructors.
+        key (Array, optional): A JAX random key, unused in this function but included for compatibility with other
+            layer constructors.
 
     Returns:
         Norm: An instance of the Norm layer configured with the specified parameters.

@@ -124,6 +124,7 @@ class PyTree:
     """
 
     def __init_subclass__(cls: type):
+        super().__init_subclass__()
         return tu.register_pytree_with_keys_class(dataclass(frozen=True)(cls))
 
     tree_flatten_with_keys = dataclass_flatten_with_keys

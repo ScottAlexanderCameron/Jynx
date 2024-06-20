@@ -1,4 +1,4 @@
-import typing as tp
+from collections.abc import Sequence
 
 import jax.nn.initializers as init
 from jax import Array, lax
@@ -16,11 +16,11 @@ class Linear(PyTree):
     This layer applies a linear transformation to the incoming data, defined as `y = xW + b` where `x` is the input,
     `W` is the layer's weights, and `b` is the bias term. The bias term is optional and can be omitted.
 
-    Attributes
+    Attributes:
         weight (Array): The weight matrix of the layer.
         bias (Optional[Array]): The bias vector of the layer, if any.
 
-    Methods
+    Methods:
         __call__(self, x, *args, **kwargs) -> Array:
             Performs the linear transformation on the input data `x`.
 
@@ -81,14 +81,14 @@ class Conv(PyTree):
     The operation is defined by parameters such as the kernel size,
     stride, and padding.
 
-    Attributes
+    Attributes:
         kernel (Array): The convolution kernel (set of filters).
         bias (Optional[Array]): The bias vector for each filter, if any.
         strides (Sequence[int]): The stride of the convolution.
         padding (Union[Sequence[Tuple[int, int]], str]): The padding strategy.
             Can be a string ('SAME', 'VALID') or a sequence of tuples for explicit padding.
 
-    Methods
+    Methods:
         __call__(self, x, *args, **kwargs) -> Array:
             Applies the convolution operation to the input data `x`.
 
@@ -96,8 +96,8 @@ class Conv(PyTree):
 
     kernel: Array
     bias: Array | None
-    strides: tp.Sequence[int] = static()
-    padding: tp.Sequence[tuple[int, int]] | str = static(default="VALID")
+    strides: Sequence[int] = static()
+    padding: Sequence[tuple[int, int]] | str = static(default="VALID")
 
     def __call__(self, x: Array, *args, **kwargs) -> Array:
         """Applies the convolution operation to the input data `x`.
@@ -129,9 +129,9 @@ class Conv(PyTree):
 def conv(
     in_channels: int,
     out_channels: int,
-    kernel_shape: tp.Sequence[int],
-    strides: tp.Sequence[int] | None = None,
-    padding: tp.Sequence[tuple[int, int]] | str = "VALID",
+    kernel_shape: Sequence[int],
+    strides: Sequence[int] | None = None,
+    padding: Sequence[tuple[int, int]] | str = "VALID",
     *,
     kernel_init: Initializer = init.kaiming_normal(1, 0),
     bias_init: Initializer = init.normal(),
@@ -180,14 +180,14 @@ class ConvTranspose(PyTree):
     models like autoencoders or generative networks. The operation is defined by parameters such as the kernel size,
     stride, and padding, and can optionally include a bias term.
 
-    Attributes
+    Attributes:
         kernel (Array): The convolution transpose kernel (set of filters).
         bias (Optional[Array]): The bias vector for each filter, if any.
         strides (Sequence[int]): The stride of the convolution transpose.
         padding (Union[Sequence[Tuple[int, int]], str]): The padding strategy. Can be a string ('SAME', 'VALID') or
             a sequence of tuples for explicit padding.
 
-    Methods
+    Methods:
         __call__(self, x, *args, **kwargs) -> Array:
             Applies the convolution transpose operation to the input data `x`.
 
@@ -195,8 +195,8 @@ class ConvTranspose(PyTree):
 
     kernel: Array
     bias: Array | None
-    strides: tp.Sequence[int] = static()
-    padding: tp.Sequence[tuple[int, int]] | str = static(default="VALID")
+    strides: Sequence[int] = static()
+    padding: Sequence[tuple[int, int]] | str = static(default="VALID")
 
     def __call__(self, x: Array, *args, **kwargs) -> Array:
         """Applies the convolution transpose operation to the input data `x`.
@@ -233,9 +233,9 @@ class ConvTranspose(PyTree):
 def conv_transpose(
     in_channels: int,
     out_channels: int,
-    kernel_shape: tp.Sequence[int],
-    strides: tp.Sequence[int] | None = None,
-    padding: tp.Sequence[tuple[int, int]] | str = "VALID",
+    kernel_shape: Sequence[int],
+    strides: Sequence[int] | None = None,
+    padding: Sequence[tuple[int, int]] | str = "VALID",
     *,
     kernel_init: Initializer = init.kaiming_normal(1, 0),
     bias_init: Initializer = init.normal(),
@@ -284,10 +284,10 @@ class Embedding(PyTree):
     This layer maps positive integer indices to dense vectors of fixed size. It's commonly used in models that deal
     with categorical data, especially in natural language processing tasks.
 
-    Attributes
+    Attributes:
         weight (Array): The embedding matrix with shape (num_embeddings, embedding_dim).
 
-    Methods
+    Methods:
         __call__(self, x, *args, **kwargs) -> Array:
             Looks up the embedding vectors corresponding to the indices in `x`.
 

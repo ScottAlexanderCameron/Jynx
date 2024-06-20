@@ -1,4 +1,5 @@
 import typing as tp
+from collections.abc import Sequence, Callable
 from dataclasses import MISSING, dataclass, fields
 
 import jax.tree_util as tu
@@ -7,7 +8,7 @@ from jax import numpy as jnp
 from jax import random as rnd
 
 from ..pytree import dataclass_flatten, static
-from .module import Key, Module, RecurrentModule
+from .module import Module, RecurrentModule
 from .static import Fn
 
 
@@ -21,11 +22,6 @@ class ModuleList[M: Module](list[M]):
     sequences of layers or components that should be processed in order.
 
     Inherits from Python's native list, providing all standard list functionalities.
-
-    Methods:
-        split_keys(self, kwargs: dict[str, tp.Any]) -> tp.Sequence[dict[str, Key]]:
-            Splits a JAX random key into a sequence of keys for each module in the list.
-
     """
 
     def __init_subclass__(cls):
@@ -43,7 +39,8 @@ class ModuleList[M: Module](list[M]):
             elif f.default_factory is not MISSING:
                 val = f.default_factory()
             else:
-                raise ValueError(f"Required parameter: {f.name} was not specified")
+                raise ValueError(f"Required parameter: {
+                                 f.name} was not specified")
             object.__setattr__(self, f.name, val)
 
     def tree_flatten(self):
@@ -63,53 +60,14 @@ class ModuleList[M: Module](list[M]):
         ch, itr = children
         return cls(itr, **ch, **aux)
 
-    def split_keys(self, kwargs: dict[str, tp.Any]) -> tp.Sequence[dict[str, Key]]:
-        """Splits a JAX random key into a sequence of keys, one for each
-        module in the ModuleList. If a key is passes in the kwargs dict,
-        it will be removed from the dict, and this function will return an
-        iterable of dicts of the form {'key': k}. If no such entry is present
-        then the kwargs dict will remain unchanged and an iterable of empty dicts
-        will be returned instead. This function is designed to be used in the following
-        pattern:
-
-        Example:
-            ```python
-            class Sequential(ModuleList):
-                def __call__(self, x, **kwargs):
-                    for layer, kwds in zip(self, self.split_keys(kwargs)):
-                        x = layer(x, **kwargs, **kwds)
-            ```
-            Here each layer receives its own unique rng key, but all other kwargs are passed
-            on to each layer in the list untouched.
-
-
-        Args:
-            kwargs (dict[str, tp.Any]): A dictionary of keyword arguments.
-                If kwargs contains a 'key' entry with a JAX random
-                key, it will be removed and split. Otherwise ignored.
-
-        Returns:
-            tp.Sequence[dict[str, Key]]: A sequence of dictionaries,
-                each containing a split key for a module in the list.
-                Dicts may be empty if 'key' is not provided in kwargs.
-
-        """
-        key = kwargs.pop("key", None)
-        if key is not None:
-            return [{"key": k} for k in rnd.split(key, len(self))]
-        else:
-            return [{}] * len(self)
-
     def __repr__(self):
         return f"{self.__class__.__name__}{tuple(self)})"
 
     @tp.overload
-    def __getitem__(self, idx: tp.SupportsIndex) -> M:
-        ...
+    def __getitem__(self, idx: tp.SupportsIndex) -> M: ...
 
     @tp.overload
-    def __getitem__(self, idx: slice) -> tp.Self:
-        ...
+    def __getitem__(self, idx: slice) -> tp.Self: ...
 
     def __getitem__(self, idx):
         item = super().__getitem__(idx)
@@ -144,8 +102,8 @@ class Sequential[T, **P](ModuleList[Module[tp.Concatenate[T, P], T]]):
     """
 
     def __call__(self, x: T, *args: P.args, **kwargs: P.kwargs) -> T:
-        for layer, key in zip(self, self.split_keys(kwargs), strict=False):
-            x = layer(x, *args, **kwargs, **key)
+        for layer in self:
+            x = layer(x, *args, **kwargs)
 
         return x
 
@@ -178,10 +136,10 @@ class Parallel[**T, U](ModuleList[Module[T, U]]):
 
     """
 
-    def __call__(self, *args: T.args, **kwargs: T.kwargs) -> tp.Sequence[U]:
+    def __call__(self, *args: T.args, **kwargs: T.kwargs) -> Sequence[U]:
         outputs = []
-        for layer, key in zip(self, self.split_keys(kwargs), strict=False):
-            outputs.append(layer(*args, **kwargs, **key))
+        for layer in self:
+            outputs.append(layer(*args, **kwargs))
         return outputs
 
 
@@ -232,7 +190,7 @@ class Recurrent[T, S, **P](ModuleList[_RecLayer[T, S, P]]):
 
     """
 
-    type States = tp.Sequence[S | None]
+    type States = Sequence[S | None]
 
     def __call__(
         self,
@@ -245,13 +203,13 @@ class Recurrent[T, S, **P](ModuleList[_RecLayer[T, S, P]]):
 
         new_states = []
 
-        for layer, st, key in zip_longest(self, state, self.split_keys(kwargs)):
+        for layer, st in zip_longest(self, state):
             if st is None:
-                layer = tp.cast(tp.Callable[tp.Concatenate[T, P], T], layer)
-                x = layer(x, *args, **kwargs, **key)
+                layer = tp.cast(Callable[tp.Concatenate[T, P], T], layer)
+                x = layer(x, *args, **kwargs)
             else:
                 layer = tp.cast(RecurrentModule, layer)
-                x, st = layer(x, st, *args, **kwargs, **key)
+                x, st = layer(x, st, *args, **kwargs)
             new_states.append(st)
 
         return x, new_states
@@ -285,11 +243,11 @@ class Recurrent[T, S, **P](ModuleList[_RecLayer[T, S, P]]):
 
     def scan(
         self,
-        xs: tp.Sequence[T],
+        xs: Sequence[T],
         state: States,
         *args: P.args,
         **kwargs: P.kwargs,
-    ) -> tuple[tp.Sequence[T], States]:
+    ) -> tuple[Sequence[T], States]:
         """Efficiently processes a sequence of inputs through the
         recurrent model using JAX's lax.scan.
 
@@ -408,10 +366,10 @@ class DenselyConnected[**P](ModuleList[Module[tp.Concatenate[Array, P], Array]])
 
     def __call__(self, x: Array, *args: P.args, **kwargs: P.kwargs) -> Array:
         inp = x
-        for layer, key in zip(self, self.split_keys(kwargs), strict=False):
+        for layer in self:
             if not self.only_inputs:
                 inp = x
-            x = layer(x, *args, **kwargs, **key)
+            x = layer(x, *args, **kwargs)
             x = jnp.concatenate((x, inp), axis=self.concat_axis)
         return x
 
