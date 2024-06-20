@@ -1,13 +1,18 @@
 import typing as tp
+from collections.abc import Sequence
 from functools import partial
 
 import jax.nn.initializers as init
 from jax import Array, nn
+from jax import numpy as jnp
 from jax import random as rnd
 from jax.nn.initializers import Initializer
 
-from .containers import Recurrent, Sequential
-from .linear import linear
+from ..pytree import PyTree, static
+from .containers import Recurrent, Sequential, sequential
+from .linear import conv, conv_transpose, linear
+from .misc import MaxPooling
+from .module import Module
 from .rnn import gru_cell, lstm_cell, rnn_cell
 from .static import Dropout, Fn
 
@@ -107,8 +112,7 @@ class RNNCellFactory(tp.Protocol):
         weight_init: Initializer,
         bias_init: Initializer,
         key: Array,
-    ) -> tp.Any:
-        ...
+    ) -> tp.Any: ...
 
 
 def rnn(
@@ -157,3 +161,111 @@ def rnn(
 
 lstm = partial(rnn, cell_factory=lstm_cell)
 gru = partial(rnn, cell_factory=gru_cell)
+
+
+class UNet[**P](PyTree):
+    type Block = Module[tp.Concatenate[Array, P], Array]
+    type UpDownBlock = Module[[Array], Array]
+
+    front: Block
+    down: UpDownBlock
+    middle: Block | tp.Self
+    up: UpDownBlock
+    back: Block
+
+    concat_axis: int = static(default=1)
+
+    def __call__(self, x: Array, *args: P.args, **kwargs: P.kwargs) -> Array:
+        x = self.front(x, *args, **kwargs)
+        z = self.down(x)
+        z = self.middle(z, *args, **kwargs)
+        z = self.up(z)
+        x = jnp.concatenate((x, z), axis=self.concat_axis)
+        x = self.back(x, *args, **kwargs)
+        return x
+
+
+class UNetBlockFactory[Block](tp.Protocol):
+    def __call__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        *,
+        key: Array,
+    ) -> Block: ...
+
+
+def unet_max_pooling(
+    in_channels: int,
+    out_channels: int,
+    key: Array,
+) -> Module[[Array], Array]:
+    del in_channels, out_channels, key
+    return MaxPooling((2, 2), (2, 2))
+
+
+def unet_conv_transpose(
+    in_channels: int,
+    out_channels: int,
+    key: Array,
+) -> Module[[Array], Array]:
+    return conv_transpose(in_channels, out_channels, (2, 2), (2, 2), key=key)
+
+
+def unet_conv_block(
+    in_channels: int,
+    out_channels: int,
+    key: Array,
+    hidden_channels: int | None = None,
+    activation: Module[[Array], Array] = nn.silu,
+    kernel_shape: Sequence[int] = (3, 3),
+) -> Module[[Array], Array]:
+    if hidden_channels is None:
+        hidden_channels = max(in_channels, out_channels)
+
+    k1, k2 = rnd.split(key)
+    return sequential(
+        conv(in_channels, hidden_channels, kernel_shape, padding="SAME", key=k1),
+        activation,
+        conv(hidden_channels, out_channels, kernel_shape, padding="SAME", key=k2),
+    )
+
+
+def unet[**P](
+    depth: int,
+    in_channels: int,
+    out_channels: int,
+    hidden_channels: int,
+    *,
+    concat_axis: int = 1,
+    expansion_factor: int = 2,
+    block_factory: UNetBlockFactory[UNet[P].Block] = unet_conv_block,
+    down_block_factory: UNetBlockFactory[UNet[P].UpDownBlock] = unet_max_pooling,
+    up_block_factory: UNetBlockFactory[UNet[P].UpDownBlock] = unet_conv_transpose,
+    key: Array,
+) -> UNet[P]:
+    k1, k2, k3, k4, k5 = rnd.split(key, 5)
+    middle: UNet[P].Block | UNet[P]
+    if depth == 0:
+        middle = block_factory(hidden_channels, hidden_channels, key=k1)
+    else:
+        middle = unet(
+            depth - 1,
+            hidden_channels,
+            hidden_channels,
+            expansion_factor * hidden_channels,
+            concat_axis=concat_axis,
+            block_factory=block_factory,
+            down_block_factory=down_block_factory,
+            up_block_factory=up_block_factory,
+            key=k1,
+        )
+
+    return UNet(
+        front=block_factory(in_channels, hidden_channels, key=k2),
+        down=down_block_factory(hidden_channels, hidden_channels, key=k3),
+        middle=middle,
+        up=up_block_factory(hidden_channels, hidden_channels, key=k4),
+        back=block_factory(2 * hidden_channels, out_channels, key=k5),
+        concat_axis=concat_axis,
+    )

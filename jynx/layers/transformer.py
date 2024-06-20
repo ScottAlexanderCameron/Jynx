@@ -55,8 +55,7 @@ class AttentionFn(tp.Protocol):
         v: Array,
         mask: Array | None = None,
         **kwargs,
-    ) -> Array:
-        ...
+    ) -> Array: ...
 
 
 # @jax.checkpoint  # pyright: ignore
@@ -92,6 +91,79 @@ def scaled_dot_product_attention(
     logits = jnp.einsum("...qd,...kd->...qk", q / jnp.sqrt(d), k)
     weights = nn.softmax(logits, axis=-1, where=mask, initial=0.0)
     return jnp.einsum("...qk,...kv->...qv", weights, v)
+
+
+def sliced_attention(
+    q: Array,
+    k: Array,
+    v: Array,
+    mask: Array | None = None,
+    **kwargs,
+) -> Array:
+    base = kwargs.get("logits_base", jnp.log(k.shape[-2]))
+    chunk_size = kwargs.get("chunk_size", 1)
+    del kwargs
+    q /= jnp.sqrt(q.shape[-1])
+
+    def chunk(x):
+        x = x.reshape(
+            *x.shape[:-2],
+            x.shape[-2] // chunk_size,
+            chunk_size,
+            x.shape[-1],
+        )
+        return jnp.swapaxes(x, 0, -3)
+
+    k, v = chunk(k), chunk(v)
+
+    if mask is not None:
+        mask = mask.reshape(
+            *mask.shape[:-1], mask.shape[-1] // chunk_size, chunk_size)
+
+    def loop(carry, kvm):
+        k, v, m = kvm
+        w, out = carry
+        logits = jnp.einsum("...qd,...kd->...qk", q, k)
+        wi = jnp.exp(logits - base)
+        wi = jnp.where(m, wi, 0)
+        out += jnp.einsum("...qk,...kv->...qv", wi, v)
+        w += wi.sum(axis=-1)
+        return (w, out), None
+
+    (sum_w, out), _ = jax.lax.scan(
+        loop, (jnp.zeros(()), jnp.zeros(())), (k, v, mask))
+    return out / sum_w
+
+
+def sliding_window_attention(
+    q: Array,
+    k: Array,
+    v: Array,
+    mask: Array | None = None,
+    **kwargs,
+) -> Array:
+    window_left = kwargs.get("window_left", 0)
+    window_right = kwargs.get("window_right", 0)
+    window_width = window_left + window_right + 1
+    assert window_width > 1, "no window provided"
+    N = q.shape[-2]
+    idx = jnp.arange(N)
+
+    def chunk(x):
+        pad = [(0, 0)] * len(x.shape)
+        pad[-2] = (window_left, window_right)
+        x = jnp.pad(x, pad)
+        x = x[..., idx: idx + window_width, :]
+        return x
+
+    k = chunk(k)
+    v = chunk(v)
+    logits = jnp.einsum("...qd,...qkd->...qk", q / jnp.sqrt(q.shape[-1]), k)
+    i, j = jnp.indices(logits.shape[-2:])
+    m = jnp.logical_and(i + j >= window_left, i + j <= N - window_left)
+    m = jnp.broadcast_to(m, logits.shape)
+    weights = jax.nn.softmax(logits, axis=-1, where=m, initial=0.0)
+    return jnp.einsum("...qk,...qkv->...qv", weights, v)
 
 
 class Attention(PyTree):
@@ -164,13 +236,17 @@ class Attention(PyTree):
         if v is None:
             v = k
 
-        q = self.proj_q(jnp.expand_dims(q, -3))  # shape: (..., n_heads, Tq, d_head)
-        k = self.proj_k(jnp.expand_dims(k, -3))  # shape: (..., n_heads, Tk, d_head)
-        v = self.proj_v(jnp.expand_dims(v, -3))  # shape: (..., n_heads, Tk, d_head)
+        # shape: (..., n_heads, Tq, d_head)
+        q = self.proj_q(jnp.expand_dims(q, -3))
+        # shape: (..., n_heads, Tk, d_head)
+        k = self.proj_k(jnp.expand_dims(k, -3))
+        # shape: (..., n_heads, Tk, d_head)
+        v = self.proj_v(jnp.expand_dims(v, -3))
 
         atten = self.attn_fn(q, k, v, mask, **kwargs)
         atten = atten.swapaxes(-2, -3)  # shape: (..., Tq, n_head, d_head)
-        atten = atten.reshape((*atten.shape[:-2], -1))  # shape: (..., Tq, embed)
+        # shape: (..., Tq, embed)
+        atten = atten.reshape((*atten.shape[:-2], -1))
         out = self.proj_o(atten)
 
         return out
