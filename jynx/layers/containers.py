@@ -39,8 +39,10 @@ class ModuleList[M: Module](list[M]):
             elif f.default_factory is not MISSING:
                 val = f.default_factory()
             else:
-                raise ValueError(f"Required parameter: {
-                                 f.name} was not specified")
+                raise ValueError(
+                    f"Required parameter: {
+                                 f.name} was not specified"
+                )
             object.__setattr__(self, f.name, val)
 
     def tree_flatten(self):
@@ -64,10 +66,12 @@ class ModuleList[M: Module](list[M]):
         return f"{self.__class__.__name__}{tuple(self)})"
 
     @tp.overload
-    def __getitem__(self, idx: tp.SupportsIndex) -> M: ...
+    def __getitem__(self, idx: tp.SupportsIndex) -> M:
+        ...
 
     @tp.overload
-    def __getitem__(self, idx: slice) -> tp.Self: ...
+    def __getitem__(self, idx: slice) -> tp.Self:
+        ...
 
     def __getitem__(self, idx):
         item = super().__getitem__(idx)

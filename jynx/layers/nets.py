@@ -112,7 +112,8 @@ class RNNCellFactory(tp.Protocol):
         weight_init: Initializer,
         bias_init: Initializer,
         key: Array,
-    ) -> tp.Any: ...
+    ) -> tp.Any:
+        ...
 
 
 def rnn(
@@ -192,7 +193,8 @@ class UNetBlockFactory[Block](tp.Protocol):
         out_channels: int,
         *,
         key: Array,
-    ) -> Block: ...
+    ) -> Block:
+        ...
 
 
 def unet_max_pooling(

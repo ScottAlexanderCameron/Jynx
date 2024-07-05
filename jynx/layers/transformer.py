@@ -55,7 +55,8 @@ class AttentionFn(tp.Protocol):
         v: Array,
         mask: Array | None = None,
         **kwargs,
-    ) -> Array: ...
+    ) -> Array:
+        ...
 
 
 # @jax.checkpoint  # pyright: ignore
@@ -268,6 +269,26 @@ class Attention(PyTree):
 
         """
         return jnp.tril(jnp.ones((seq_len, seq_len), dtype=bool))
+
+    @classmethod
+    def block_dense_mask(
+        cls,
+        key_block_sizes: tp.Sequence[int],
+        query_block_sizes: tp.Sequence[int] | None = None,
+    ) -> Array:
+        if query_block_sizes is None:
+            query_block_sizes = key_block_sizes
+
+        kb_ids = jnp.arange(len(key_block_sizes))
+        kb_ids = jnp.repeat(kb_ids, key_block_sizes)
+
+        qb_ids = jnp.arange(len(query_block_sizes))
+        qb_ids = jnp.repeat(qb_ids, query_block_sizes)
+        return qb_ids[:, None] == kb_ids
+
+    @classmethod
+    def block_causal_mask(cls, block_sizes: tp.Sequence[int]) -> Array:
+        return jnp.tril(cls.block_dense_mask(block_sizes))
 
 
 def attention(
