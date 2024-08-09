@@ -1,5 +1,5 @@
 import typing as tp
-from collections.abc import Sequence, Callable
+from collections.abc import Callable, Sequence
 from dataclasses import MISSING, dataclass, fields
 
 import jax.tree_util as tu
@@ -41,7 +41,7 @@ class ModuleList[M: Module](list[M]):
             else:
                 raise ValueError(
                     f"Required parameter: {
-                                 f.name} was not specified"
+                                 f.name} was not specified",
                 )
             object.__setattr__(self, f.name, val)
 
@@ -66,12 +66,10 @@ class ModuleList[M: Module](list[M]):
         return f"{self.__class__.__name__}{tuple(self)})"
 
     @tp.overload
-    def __getitem__(self, idx: tp.SupportsIndex) -> M:
-        ...
+    def __getitem__(self, idx: tp.SupportsIndex) -> M: ...
 
     @tp.overload
-    def __getitem__(self, idx: slice) -> tp.Self:
-        ...
+    def __getitem__(self, idx: slice) -> tp.Self: ...
 
     def __getitem__(self, idx):
         item = super().__getitem__(idx)
@@ -322,10 +320,18 @@ class DenselyConnected[**P](ModuleList[Module[tp.Concatenate[Array, P], Array]])
 
     In a `DenselyConnected` block, the output from each layer is
     concatenated with the original input and the outputs of all preceding
-    layers, thus providing each layer with a "collective knowledge" from
-    all previous layers. This architecture promotes feature reuse and
-    can lead to more efficient training and improved model performance,
-    especially in deep networks.
+    layers.
+
+    ```
+       ↓
+    ╭─────╮┌───────────┬────────┐
+    │block│┤╭─────╮┌───│──────┐ │
+    ╰─────╯└│block│┤╭─────╮   │ │
+            ╰─────╯└│block│┐╭─────╮
+                    ╰─────╯└│block│
+                            ╰─────╯
+                               ↓
+    ```
 
     Attributes:
         concat_axis (int): The axis along which to concatenate the

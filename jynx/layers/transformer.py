@@ -55,11 +55,9 @@ class AttentionFn(tp.Protocol):
         v: Array,
         mask: Array | None = None,
         **kwargs,
-    ) -> Array:
-        ...
+    ) -> Array: ...
 
 
-# @jax.checkpoint  # pyright: ignore
 def scaled_dot_product_attention(
     q: Array,
     k: Array,
@@ -83,7 +81,7 @@ def scaled_dot_product_attention(
         q = jnp.array([[[1.0, 2.0]]])  # shape: (1, 1, 2)
         k = jnp.array([[[3.0, 4.0], [1.0, 0.0]]])  # shape: (1, 2, 2)
         v = jnp.array([[[5.0, 6.0], [7.0, 8.0]]])  # shape: (1, 2, 2)
-        scaled_dot_product_attention(q, k, v)
+        o = scaled_dot_product_attention(q, k, v)  # shape: (1, 1, 2)
         ```
 
     """
@@ -101,6 +99,35 @@ def sliced_attention(
     mask: Array | None = None,
     **kwargs,
 ) -> Array:
+    """A memory efficient version of attention implemented by iterating over
+    the queries and values. This is mathematically equivalent to
+    `scaled_dot_product_attention`, although may produce slightly different
+    results due to floating point error.
+
+    Args:
+        q: Array, the queries with shape (..., Tq, qdim).
+        k: Array, the keys with shape (..., Tk, kdim).
+        v: Array, the values with shape (..., Tk, vdim).
+        mask: Optional[Array], the mask tensor with shape (..., Tq, Tk).
+        chunk_size (int): how many key and value pairs to include in the
+            attention calculation per iteration, default 1.
+        logits_base (ArrayLike): numerical stability factor subtracted from
+            the logits before exponentiating. The calculation is mathematically
+            equivalent for any value, but setting it specifically may result
+            in better or worse numerical accuracy. default log(Tk).
+
+    Returns:
+        Array: The result of the attention mechanism with shape (..., Tq, vdim).
+
+    Example:
+        ```python
+        q = jnp.array([[[1.0, 2.0]]])  # shape: (1, 1, 2)
+        k = jnp.ones((1, 6, 2))
+        v = jnp.ones((1, 6, 2))
+        o = sliced_attention(q, k, v, chunk_size=3)  # shape: (1, 1, 2)
+        ```
+
+    """
     base = kwargs.get("logits_base", jnp.log(k.shape[-2]))
     chunk_size = kwargs.get("chunk_size", 1)
     del kwargs
@@ -113,24 +140,31 @@ def sliced_attention(
             chunk_size,
             x.shape[-1],
         )
-        return jnp.swapaxes(x, 0, -3)
+
+        return jnp.moveaxis(x, -3, 0)
 
     k, v = chunk(k), chunk(v)
 
     if mask is not None:
         mask = mask.reshape(*mask.shape[:-1], mask.shape[-1] // chunk_size, chunk_size)
+        mask = jnp.moveaxis(mask, -2, 0)
 
     def loop(carry, kvm):
         k, v, m = kvm
         w, out = carry
         logits = jnp.einsum("...qd,...kd->...qk", q, k)
         wi = jnp.exp(logits - base)
-        wi = jnp.where(m, wi, 0)
+        if m is not None:
+            wi = jnp.where(m, wi, 0)
         out += jnp.einsum("...qk,...kv->...qv", wi, v)
-        w += wi.sum(axis=-1)
+        w += wi.sum(axis=-1, keepdims=True)
         return (w, out), None
 
-    (sum_w, out), _ = jax.lax.scan(loop, (jnp.zeros(()), jnp.zeros(())), (k, v, mask))
+    (sum_w, out), _ = jax.lax.scan(
+        loop,
+        (jnp.zeros((*q.shape[:-1], 1)), jnp.zeros((*q.shape[:-1], v.shape[-1]))),
+        (k, v, mask),
+    )
     return out / sum_w
 
 
@@ -141,6 +175,7 @@ def sliding_window_attention(
     mask: Array | None = None,
     **kwargs,
 ) -> Array:
+    del mask
     window_left = kwargs.get("window_left", 0)
     window_right = kwargs.get("window_right", 0)
     window_width = window_left + window_right + 1
@@ -280,10 +315,10 @@ class Attention(PyTree):
             query_block_sizes = key_block_sizes
 
         kb_ids = jnp.arange(len(key_block_sizes))
-        kb_ids = jnp.repeat(kb_ids, key_block_sizes)
+        kb_ids = jnp.repeat(kb_ids, jnp.asarray(key_block_sizes))
 
         qb_ids = jnp.arange(len(query_block_sizes))
-        qb_ids = jnp.repeat(qb_ids, query_block_sizes)
+        qb_ids = jnp.repeat(qb_ids, jnp.asarray(query_block_sizes))
         return qb_ids[:, None] == kb_ids
 
     @classmethod

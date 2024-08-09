@@ -1,14 +1,11 @@
-import typing as tp
-from collections.abc import Sequence, Callable
+from collections.abc import Callable, Sequence
 from functools import partial
 
 from jax import Array, lax
 from jax import numpy as jnp
-from jax import random as rnd
 from jax.typing import ArrayLike
 
 from ..pytree import PyTree, static
-from .module import Module
 from .static import Static
 
 
@@ -87,19 +84,6 @@ MinPooling = partial(Pooling, +jnp.inf, lax.min)
 AvgPoolng = partial(Pooling, 0, lax.add, normalize=True)
 
 
-class SkipConnection[**T](PyTree):
-    residual: Module[T, Array]
-    shortcut: Module[T, Array]
-
-    def __call__(self, *x: T.args, **kwargs: T.kwargs) -> Array:
-        if "key" in kwargs:
-            k1, k2 = rnd.split(tp.cast(Array, kwargs.pop("key")))
-            kwds1, kwds2 = {**kwargs, "key": k1}, {**kwargs, "key": k2}
-        else:
-            kwds1 = kwds2 = kwargs
-        return self.residual(*x, **kwds1) + self.shortcut(*x, **kwds2)
-
-
 class Norm(PyTree):
     """A generic normalization layer that can be used for various normalization techniques, including layer normalization.
 
@@ -124,7 +108,7 @@ class Norm(PyTree):
 
     weight: Array | None = None
     bias: Array | None = None
-    axis: int = static(default=-1)
+    axis: int | Sequence[int] = static(default=-1)
     subtract_mean: bool = static(default=True)
 
     def __call__(self, x: Array, *args, **kwargs) -> Array:
@@ -145,7 +129,7 @@ class Norm(PyTree):
 
 def norm(
     shape: tuple,
-    axis: int,
+    axis: int | Sequence[int],
     *,
     use_weight: bool = True,
     use_bias: bool = True,

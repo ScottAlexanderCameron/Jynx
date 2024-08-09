@@ -132,12 +132,12 @@ def test_rnn_scan_eq_forward_in_loop():
     for _ in range(5):
         x, s = rnn(xs[-1], states[-1])
         xs.append(x)
-        states.append(s)
+        states.append(s)  # type: ignore
 
     xs = jnp.stack(xs)
-    ys, last_state = rnn.scan(xs[:-1], states[0])
+    ys, last_state = rnn.scan(xs[:-1], states[0])  # type: ignore
 
-    assert jnp.allclose(xs[1:], ys)
+    assert jnp.allclose(xs[1:], ys)  # type: ignore
     assert tu.tree_all(tu.tree_map(jnp.allclose, last_state, states[-1]))
 
 
@@ -167,7 +167,8 @@ def test_conv_shape_inverts_conv_transpose(in_shape, channels, kernel_size, stri
 
 @given(small_ints, small_ints)
 @slow_settings
-def test_attention_permutation_invariant(dhead, num_heads):
+def test_attn_permutation_invariant(dhead, num_heads):
+    # NB does not apply to sliding window
     key = partial(next, jynx.key_seq(rnd.PRNGKey(0)))
     d = dhead * num_heads
     attn = nn.attention(d, num_heads, key=key())
@@ -178,6 +179,28 @@ def test_attention_permutation_invariant(dhead, num_heads):
     x2 = attn(q, k[p])
 
     assert jnp.allclose(x1, x2, rtol=1e-3, atol=1e-5)
+
+
+@given(st.integers(16, 128), st.integers(32, 64), seeds, st.booleans())
+@slow_settings
+def test_sliced_attn_eq_full_attn(seq_len, dim, seed, use_mask):
+    key = partial(next, jynx.key_seq(rnd.PRNGKey(seed)))
+    q = rnd.normal(key(), (seq_len, dim))
+    k = rnd.normal(key(), (seq_len, dim))
+    v = rnd.normal(key(), (seq_len, dim))
+    if use_mask:
+        mask = rnd.bernoulli(key(), 0.1, (seq_len, seq_len))
+        mask = mask.at[jnp.diag_indices_from(mask)].set(True)
+    else:
+        mask = None
+
+    o1 = nn.scaled_dot_product_attention(q, k, v, mask)
+    o2 = nn.sliced_attention(q, k, v, mask)
+
+    assert jnp.all(jnp.isfinite(o1))
+    assert jnp.all(jnp.isfinite(o2))
+
+    assert jnp.allclose(o1, o2, rtol=1e-3, atol=1e-5)
 
 
 def assert_tree_map_with_paths_preserves_order(obj):
@@ -244,7 +267,7 @@ def test_transformer_tree_map_preserves_order(dhead, num_heads, layers):
 @slow_settings
 def test_unet_initial_forward_is_not_nan(depth, key):
     key = partial(next, jynx.key_seq(rnd.PRNGKey(key)))
-    unet: nn.UNet = nn.unet(depth, 1, 1, 16, key=key())
+    unet = nn.unet(depth, 1, 1, 16, key=key())
     x = rnd.normal(key(), (1, 1, 32, 32))
 
     assert jnp.all(jnp.isfinite(unet(x)))
