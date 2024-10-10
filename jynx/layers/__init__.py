@@ -25,7 +25,6 @@ from .misc import (
     MinPooling,
     Norm,
     Pooling,
-    SkipConnection,
     layer_norm,
     norm,
 )

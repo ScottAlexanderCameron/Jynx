@@ -386,7 +386,7 @@ def unet[**P](
     middle: UNet[P].Block | UNet[P]
     if isinstance(expansion_factor, int):
         expansion_factor = [expansion_factor] * (depth - 1)
-    elif len(expansion_factor) < depth:
+    elif len(expansion_factor) < depth - 1:
         expansion_factor = list(expansion_factor) + [expansion_factor[-1]] * (
             depth - len(expansion_factor)
         )
