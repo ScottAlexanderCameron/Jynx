@@ -116,7 +116,7 @@ class Norm(PyTree):
         if self.subtract_mean:
             x = x - jnp.mean(x, axis=self.axis, keepdims=True)
 
-        denom = jnp.square(x).sum(axis=self.axis, keepdims=True)
+        denom = jnp.sqrt(jnp.square(x).mean(axis=self.axis, keepdims=True))
         denom = jnp.clip(denom, 1e-6, None)
         x = x / denom
 

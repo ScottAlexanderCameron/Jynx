@@ -271,3 +271,11 @@ def test_unet_initial_forward_is_not_nan(depth, key):
     x = rnd.normal(key(), (1, 1, 32, 32))
 
     assert jnp.all(jnp.isfinite(unet(x)))
+
+
+@given(seeds)
+def test_norm_output_is_normalized(seed):
+    norm = nn.norm((), axis=-1, use_weight=False, use_bias=False)
+    x = rnd.normal(rnd.PRNGKey(seed), (16, 16))
+    y = norm(x)
+    assert jnp.allclose(jnp.std(y, axis=-1), jnp.ones(y.shape[:-1]))
