@@ -98,6 +98,7 @@ class Conv(PyTree):
     bias: Array | None
     strides: Sequence[int] = static()
     padding: Sequence[tuple[int, int]] | str = static(default="VALID")
+    channels_last: bool = static(default=False)
 
     def __call__(self, x: Array, *args, **kwargs) -> Array:
         """Applies the convolution operation to the input data `x`.
@@ -121,6 +122,11 @@ class Conv(PyTree):
                 self.kernel,
                 self.strides,
                 self.padding,
+                dimension_numbers=_dimension_numbers(
+                    x.shape,
+                    self.kernel.shape,
+                    self.channels_last,
+                ),
             ),
         )
         return x.reshape((*extra_dims, -1, *x.shape[1:]))
@@ -134,7 +140,8 @@ def conv(
     padding: Sequence[tuple[int, int]] | str = "VALID",
     *,
     kernel_init: Initializer = init.kaiming_normal(1, 0),
-    bias_init: Initializer = init.normal(),
+    bias_init: Initializer | None = init.normal(),
+    channels_last: bool | None = None,
     key: Array,
 ) -> Conv:
     """Initializes a Conv layer with the specified dimensions, initializers, and convolution parameters.
@@ -161,15 +168,20 @@ def conv(
     if not isinstance(padding, str):
         padding = tuple(padding)
 
+    if channels_last is None:
+        channels_last = False
+
+    if channels_last:
+        bias_shape = (out_channels,)
+    else:
+        bias_shape = (out_channels,) + (1,) * len(kernel_shape)
+
     return Conv(
         kernel_init(k1, (out_channels, in_channels) + tuple(kernel_shape)),
-        (
-            bias_init(k2, (out_channels,) + (1,) * len(kernel_shape))
-            if bias_init is not None
-            else None
-        ),
+        (bias_init(k2, bias_shape) if bias_init is not None else None),
         tuple(strides or (1,) * len(kernel_shape)),
         padding,
+        channels_last,
     )
 
 
@@ -197,6 +209,7 @@ class ConvTranspose(PyTree):
     bias: Array | None
     strides: Sequence[int] = static()
     padding: Sequence[tuple[int, int]] | str = static(default="VALID")
+    channels_last: bool = static(default=False)
 
     def __call__(self, x: Array, *args, **kwargs) -> Array:
         """Applies the convolution transpose operation to the input data `x`.
@@ -213,6 +226,7 @@ class ConvTranspose(PyTree):
         del args, kwargs
         extra_dims = x.shape[: -len(self.kernel.shape)]
         x = x.reshape((-1, *x.shape[len(extra_dims) + 1 :]))
+
         x = _maybe_add_bias(
             self.bias,
             lax.conv_transpose(
@@ -220,14 +234,32 @@ class ConvTranspose(PyTree):
                 self.kernel,
                 self.strides,
                 self.padding,
-                dimension_numbers=lax.conv_dimension_numbers(
+                dimension_numbers=_dimension_numbers(
                     x.shape,
                     self.kernel.shape,
-                    None,
+                    self.channels_last,
                 ),
             ),
         )
         return x.reshape((*extra_dims, -1, *x.shape[1:]))
+
+
+def _dimension_numbers(x_shape, kernel_shape, channels_last):
+    assert len(x_shape) >= 2, "input tensor must have at least 2 dimensions"
+
+    if channels_last:
+        chars = "".join(chr(ord("a") + i) for i in range(len(x_shape) - 2))
+        in_spec = f"N{chars}C"
+        kernel_spec = f"OI{chars}"
+        dim_spec = (in_spec, kernel_spec, in_spec)
+    else:
+        dim_spec = None
+
+    return lax.conv_dimension_numbers(
+        x_shape,
+        kernel_shape,
+        dim_spec,
+    )
 
 
 def conv_transpose(
@@ -238,7 +270,8 @@ def conv_transpose(
     padding: Sequence[tuple[int, int]] | str = "VALID",
     *,
     kernel_init: Initializer = init.kaiming_normal(1, 0),
-    bias_init: Initializer = init.normal(),
+    bias_init: Initializer | None = init.normal(),
+    channels_last: bool | None = None,
     key: Array,
 ) -> ConvTranspose:
     """Initializes a ConvTranspose layer with specified dimensions, initializers, and convolution transpose parameters.
@@ -266,15 +299,20 @@ def conv_transpose(
     if not isinstance(padding, str):
         padding = tuple(padding)
 
+    if channels_last is None:
+        channels_last = False
+
+    if channels_last:
+        bias_shape = (out_channels,)
+    else:
+        bias_shape = (out_channels,) + (1,) * len(kernel_shape)
+
     return ConvTranspose(
         kernel_init(k1, (out_channels, in_channels) + tuple(kernel_shape)),
-        (
-            bias_init(k2, (out_channels,) + (1,) * len(kernel_shape))
-            if bias_init is not None
-            else None
-        ),
+        (bias_init(k2, bias_shape) if bias_init is not None else None),
         tuple(strides or (1,) * len(kernel_shape)),
         padding,
+        channels_last,
     )
 
 

@@ -114,7 +114,8 @@ class RNNCellFactory(tp.Protocol):
         weight_init: Initializer,
         bias_init: Initializer,
         key: Array,
-    ) -> RecurrentModule: ...
+    ) -> RecurrentModule:
+        ...
 
 
 def rnn(
@@ -260,7 +261,8 @@ class UNetBlockFactory[Block](tp.Protocol):
         depth: int,
         *,
         key: Array,
-    ) -> Block: ...
+    ) -> Block:
+        ...
 
 
 def unet_max_pooling(
@@ -363,7 +365,7 @@ def unet[**P](
             8, 16, 64, 256. Note that these factors are cumulative, so the number
             of output channels from the final downsampling layer here is
             4 * 4 * 2 * 8. If an int is provided, then the same expansion_factor
-            is used at all depths. Eg: this is equivalent to providing 
+            is used at all depths. Eg: this is equivalent to providing
             `[expansion_factor] * (depth - 1)`
         block_factory (UNetBlockFactory): a callable to create the blocks in the
             front, back, and middle of the network. Takes as input arguments

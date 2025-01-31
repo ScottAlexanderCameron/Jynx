@@ -66,10 +66,12 @@ class ModuleList[M: Module](list[M]):
         return f"{self.__class__.__name__}{tuple(self)})"
 
     @tp.overload
-    def __getitem__(self, idx: tp.SupportsIndex) -> M: ...
+    def __getitem__(self, idx: tp.SupportsIndex) -> M:
+        ...
 
     @tp.overload
-    def __getitem__(self, idx: slice) -> tp.Self: ...
+    def __getitem__(self, idx: slice) -> tp.Self:
+        ...
 
     def __getitem__(self, idx):
         item = super().__getitem__(idx)

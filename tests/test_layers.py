@@ -1,3 +1,4 @@
+from dataclasses import replace
 from functools import partial
 
 import jax
@@ -141,28 +142,77 @@ def test_rnn_scan_eq_forward_in_loop():
     assert tu.tree_all(tu.tree_map(jnp.allclose, last_state, states[-1]))
 
 
-@given(st.lists(small_ints, min_size=3, max_size=3), small_ints, tiny_ints, tiny_ints)
+@given(st.lists(small_ints, min_size=1, max_size=3), small_ints, tiny_ints, tiny_ints)
 @slow_settings
 def test_conv_shape_inverts_conv_transpose(in_shape, channels, kernel_size, stride):
-    in_shape = (1,) + tuple(in_shape)
     key = jynx.key_seq(rnd.PRNGKey(0))
+    kernel_size = (kernel_size,) * (len(in_shape) - 1)
+    stride = (stride,) * (len(in_shape) - 1)
+
     conv = nn.conv(
         channels,
-        in_shape[1],
-        (kernel_size, kernel_size),
-        (stride, stride),
+        in_shape[0],
+        kernel_size,
+        stride,
         key=next(key),
     )
     deconv = nn.conv_transpose(
-        in_shape[1],
+        in_shape[0],
         channels,
-        (kernel_size, kernel_size),
-        (stride, stride),
+        kernel_size,
+        stride,
         key=next(key),
     )
 
+    in_shape = (1,) + tuple(in_shape)
     x = jnp.zeros(in_shape)
+
     assert x.shape == conv(deconv(x)).shape
+
+
+@given(st.lists(small_ints, min_size=1, max_size=3), small_ints, tiny_ints, tiny_ints)
+@slow_settings
+def test_conv_fwd_eq_channels_last_fwd(in_shape, channels, kernel_size, stride):
+    key = jynx.key_seq(rnd.PRNGKey(0))
+    kernel_size = (kernel_size,) * (len(in_shape) - 1)
+    stride = (stride,) * (len(in_shape) - 1)
+
+    conv = nn.conv(
+        channels,
+        in_shape[0],
+        kernel_size,
+        stride,
+        channels_last=False,
+        key=next(key),
+    )
+    deconv = nn.conv_transpose(
+        in_shape[0],
+        channels,
+        kernel_size,
+        stride,
+        channels_last=False,
+        key=next(key),
+    )
+    assert conv.bias is not None  # make type checker happy
+    assert deconv.bias is not None
+
+    in_shape = (1,) + tuple(in_shape)
+    x = rnd.normal(next(key), in_shape)
+
+    y1 = deconv(x)
+    y2 = conv(y1)
+    print(x.shape, y1.shape, y2.shape)
+
+    conv = replace(conv, channels_last=True, bias=conv.bias.reshape(-1))
+    deconv = replace(deconv, channels_last=True, bias=deconv.bias.reshape(-1))
+
+    z1 = deconv(jnp.moveaxis(x, 1, -1))
+    print(z1.shape)
+    z2 = conv(z1)
+    print(z2.shape)
+
+    assert jnp.allclose(y1, jnp.moveaxis(z1, -1, 1))
+    assert jnp.allclose(y2, jnp.moveaxis(z2, -1, 1))
 
 
 @given(small_ints, small_ints)
@@ -274,6 +324,7 @@ def test_unet_initial_forward_is_not_nan(depth, key):
 
 
 @given(seeds)
+@slow_settings
 def test_norm_output_is_normalized(seed):
     norm = nn.norm((), axis=-1, use_weight=False, use_bias=False)
     x = rnd.normal(rnd.PRNGKey(seed), (16, 16))

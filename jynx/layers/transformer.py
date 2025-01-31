@@ -55,7 +55,8 @@ class AttentionFn(tp.Protocol):
         v: Array,
         mask: Array | None = None,
         **kwargs,
-    ) -> Array: ...
+    ) -> Array:
+        ...
 
 
 def scaled_dot_product_attention(
@@ -88,7 +89,7 @@ def scaled_dot_product_attention(
     del kwargs
     d = q.shape[-1]
     logits = jnp.einsum("...qd,...kd->...qk", q / jnp.sqrt(d), k)
-    weights = nn.softmax(logits, axis=-1, where=mask, initial=0.0)
+    weights = nn.softmax(logits, axis=-1, where=mask)
     return jnp.einsum("...qk,...kv->...qv", weights, v)
 
 
@@ -179,7 +180,7 @@ def sliding_window_attention(
     window_left = kwargs.get("window_left", 0)
     window_right = kwargs.get("window_right", 0)
     window_width = window_left + window_right + 1
-    assert window_width > 1, "no window provided"
+    assert window_width > 1, "a valid window must be provided"
     N = q.shape[-2]
     idx = jnp.arange(N)
 
@@ -196,7 +197,7 @@ def sliding_window_attention(
     i, j = jnp.indices(logits.shape[-2:])
     m = jnp.logical_and(i + j >= window_left, i + j <= N - window_left)
     m = jnp.broadcast_to(m, logits.shape)
-    weights = jax.nn.softmax(logits, axis=-1, where=m, initial=0.0)
+    weights = jax.nn.softmax(logits, axis=-1, where=m)
     return jnp.einsum("...qk,...qkv->...qv", weights, v)
 
 
@@ -466,17 +467,24 @@ class TransformerEncoderBlock(PyTree):
 
         """
         if self.norm_first:
-            x = self.norm1(x)
+            h = self.norm1(x)
+        else:
+            h = x
 
         x = x + self.dropout(
-            self.self_attention(x, mask=mask, **kwargs),
+            self.self_attention(h, mask=mask, **kwargs),
             **kwargs,
         )
-        x = self.norm2(x)
-        x = x + self.dropout(self.mlp(x, **kwargs), **kwargs)
+
+        if self.norm_first:
+            h = self.norm2(x)
+        else:
+            h = x = self.norm1(x)
+
+        x = x + self.dropout(self.mlp(h, **kwargs), **kwargs)
 
         if not self.norm_first:
-            x = self.norm1(x)
+            x = self.norm2(x)
 
         return x
 
@@ -661,22 +669,34 @@ class TransformerDecoderBlock(PyTree):
         **kwargs,
     ) -> Array:
         if self.norm_first:
-            x = self.norm1(x)
+            h = self.norm1(x)
+        else:
+            h = x
 
         x = x + self.dropout(
-            self.self_attention(x, mask=mask, **kwargs),
+            self.self_attention(h, mask=mask, **kwargs),
             **kwargs,
         )
-        x = self.norm2(x)
+
+        if self.norm_first:
+            h = self.norm2(x)
+        else:
+            h = x = self.norm1(x)
+
         x = x + self.dropout(
-            self.cross_attention(x, context, mask=context_mask, **kwargs),
+            self.cross_attention(h, context, mask=context_mask, **kwargs),
             **kwargs,
         )
-        x = self.norm3(x)
-        x = x + self.dropout(self.mlp(x, **kwargs), **kwargs)
+
+        if self.norm_first:
+            h = self.norm3(x)
+        else:
+            h = x = self.norm2(x)
+
+        x = x + self.dropout(self.mlp(h, **kwargs), **kwargs)
 
         if not self.norm_first:
-            x = self.norm1(x)
+            x = self.norm3(x)
 
         return x
 
