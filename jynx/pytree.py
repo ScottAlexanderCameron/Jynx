@@ -39,8 +39,8 @@ def dataclass_flatten(self):
     """
     fs = {f.name: f.metadata.get("static", False) for f in fields(self)}
     ch = {name: getattr(self, name) for name, st in sorted(fs.items()) if not st}
-    aux = {name: getattr(self, name) for name, st in sorted(fs.items()) if st}
-    return (ch,), aux
+    static = {name: getattr(self, name) for name, st in sorted(fs.items()) if st}
+    return ch.values(), (ch.keys(), static)
 
 
 def dataclass_unflatten(cls, aux, children):
@@ -59,8 +59,9 @@ def dataclass_unflatten(cls, aux, children):
         the provided dynamic and static data.
 
     """
-    (children,) = children
-    return cls(**children, **aux)
+    keys, static = aux
+    children = dict(zip(keys, children, strict=True))
+    return cls(**children, **static)
 
 
 def dataclass_flatten_with_keys(self):
@@ -76,10 +77,11 @@ def dataclass_flatten_with_keys(self):
         and a dictionary of static attributes.
 
     """
-    (ch,), aux = self.tree_flatten()
-    return [
-        (tu.GetAttrKey(k), v) for k, v in sorted(ch.items(), key=lambda a: a[0])
-    ], aux
+    ch, (keys, static) = dataclass_flatten(self)
+    return [(tu.GetAttrKey(k), v) for k, v in zip(keys, ch, strict=True)], (
+        keys,
+        static,
+    )
 
 
 @dataclass_transform(field_specifiers=(static,))

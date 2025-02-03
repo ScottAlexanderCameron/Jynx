@@ -46,38 +46,38 @@ class ModuleList[M: Module](list[M]):
             object.__setattr__(self, f.name, val)
 
     def tree_flatten(self):
-        (ch,), aux = dataclass_flatten(self)
-        return (ch, tuple(self)), aux
+        ch, aux = dataclass_flatten(self)
+        return (*ch, *self), aux
 
     def tree_flatten_with_keys(self):
-        (ch, itr), aux = self.tree_flatten()
+        ch, (keys, static) = dataclass_flatten(self)
         return (
-            [(tu.GetAttrKey(k), v) for k, v in ch.items()]
-            + [(tu.SequenceKey(i), v) for i, v in enumerate(itr)],
-            aux,
+            [(tu.GetAttrKey(k), v) for k, v in zip(keys, ch, strict=True)]
+            + [(tu.SequenceKey(i), v) for i, v in enumerate(self)],
+            (keys, static),
         )
 
     @classmethod
     def tree_unflatten(cls, aux, children):
-        ch, itr = children
-        return cls(itr, **ch, **aux)
+        keys, static = aux
+        ch = dict(zip(keys, children[: len(keys)], strict=True))
+        return cls(children[len(keys) :], **ch, **static)
 
     def __repr__(self):
         return f"{self.__class__.__name__}{tuple(self)})"
 
     @tp.overload
-    def __getitem__(self, idx: tp.SupportsIndex) -> M:
-        ...
+    def __getitem__(self, idx: tp.SupportsIndex) -> M: ...
 
     @tp.overload
-    def __getitem__(self, idx: slice) -> tp.Self:
-        ...
+    def __getitem__(self, idx: slice) -> tp.Self: ...
 
     def __getitem__(self, idx):
         item = super().__getitem__(idx)
         if isinstance(idx, slice):
-            (ch,), aux = dataclass_flatten(self)
-            return type(self)(item, **ch, **aux)
+            ch, (keys, static) = dataclass_flatten(self)
+            ch = dict(zip(keys, ch, strict=True))
+            return type(self)(item, **ch, **static)
         else:
             return item
 
